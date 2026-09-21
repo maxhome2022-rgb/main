@@ -1,0 +1,135 @@
+# -*- coding: utf-8 -*-
+"""
+'영화 데이터 그래프 도감 1 - 시간' 스트림릿(Streamlit) 앱입니다.
+1년치(365일) 일별 박스오피스 10위권 기록을 가지고
+'시간에 따른 변화'를 보여주는 그래프들을 모아둔 도감(그래프 모음집)입니다.
+
+데이터 출처:
+https://raw.githubusercontent.com/greatsong/modudata/main/data/kobis_daily.csv
+
+이 파일에는 다음 8개의 열이 있습니다.
+    날짜(yyyymmdd 여덟 자리 숫자) · 순위 · 영화코드 · 영화명 ·
+    일관객(그날 관객수) · 누적관객 · 스크린수 · 상영횟수
+
+배포 방법(스트림릿 클라우드):
+이 파일(main.py)과 requirements.txt를 같은 저장소(repo)에 올리기만 하면 됩니다.
+(이 앱은 별도의 인증키가 필요 없는 공개 데이터를 사용합니다.)
+"""
+
+import pandas as pd
+import plotly.express as px
+import streamlit as st
+
+# 데이터가 있는 주소입니다.
+DATA_URL = "https://raw.githubusercontent.com/greatsong/modudata/main/data/kobis_daily.csv"
+
+
+@st.cache_data(ttl=3600, show_spinner="데이터를 불러오는 중...")
+def load_data() -> pd.DataFrame:
+    """
+    깃허브에 있는 CSV 파일을 읽어와서 판다스 표(DataFrame)로 돌려줍니다.
+    한 번 불러온 데이터는 1시간 동안 저장해두고 재사용합니다(st.cache_data).
+    """
+    # encoding="utf-8-sig"는 파일 맨 앞에 숨어있는 BOM(보이지 않는 표시 문자)을
+    # 깔끔하게 제거해줍니다. 이게 없으면 첫 번째 열 이름이 이상하게 깨질 수 있어요.
+    df = pd.read_csv(DATA_URL, encoding="utf-8-sig")
+
+    # '날짜' 열은 20250901처럼 여덟 자리 숫자로 되어 있습니다.
+    # 이걸 진짜 날짜(datetime) 타입으로 바꿔줘야 그래프의 가로축(시간축)으로
+    # 자연스럽게 쓸 수 있습니다.
+    df["날짜"] = pd.to_datetime(df["날짜"], format="%Y%m%d")
+
+    # 숫자 열들도 혹시 모르니 숫자 타입으로 한 번 더 확실히 바꿔줍니다.
+    numeric_columns = ["순위", "일관객", "누적관객", "스크린수", "상영횟수"]
+    for col in numeric_columns:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    return df
+
+
+def render_insight(text: str):
+    """
+    그래프 아래에 '이 그래프로 알 수 있는 것' 한 줄을 보여주는 공통 함수입니다.
+    앞으로 그래프를 추가할 때도 이 함수를 그대로 재사용하면 됩니다.
+    text 자리에 원하는 설명 문장을 넣어주세요.
+    """
+    st.markdown(f"📌 **이 그래프로 알 수 있는 것:** {text}")
+
+
+def section_daily_audience_by_movie(df: pd.DataFrame):
+    """
+    [섹션 1] 영화를 하나 골라서, 그 영화의 날짜별 일일 관객수 변화를
+    선 그래프(꺾은선 그래프)로 보여줍니다.
+    """
+    st.header("1. 영화별 일일 관객수 변화")
+
+    # 드롭다운(selectbox)에 넣을 영화 이름 목록을 가나다순으로 정리합니다.
+    movie_list = sorted(df["영화명"].unique())
+
+    selected_movie = st.selectbox(
+        "영화를 선택하세요",
+        movie_list,
+        key="movie_select_section1",
+    )
+
+    # 고른 영화의 기록만 골라내고, 날짜순으로 정렬합니다.
+    movie_df = df[df["영화명"] == selected_movie].sort_values("날짜")
+
+    # Plotly Express로 선 그래프를 그립니다.
+    # hover_data에 날짜와 관객수를 넣어두면, 마우스를 올렸을 때 그 값이 보입니다.
+    fig = px.line(
+        movie_df,
+        x="날짜",
+        y="일관객",
+        markers=True,
+        title=f"'{selected_movie}' 날짜별 일일 관객수",
+        labels={"날짜": "날짜", "일관객": "일일 관객수(명)"},
+        hover_data={"날짜": "|%Y-%m-%d", "일관객": ":,"},
+    )
+    fig.update_layout(hovermode="x unified")
+
+    st.plotly_chart(fig, use_container_width=True)
+
+    # '이 그래프로 알 수 있는 것' 문구 자리입니다. 필요하면 아래 문장을 직접 바꿔서 쓰세요.
+    render_insight(
+        "이 영화가 개봉 이후 시간이 지나면서 하루 관객수가 어떻게 오르내렸는지, "
+        "언제 흥행의 정점을 찍었는지 한눈에 볼 수 있습니다."
+    )
+
+
+def section_placeholder_next():
+    """
+    [섹션 2 이후] 앞으로 그래프를 계속 추가할 자리입니다.
+    새 그래프를 만들 때는 위의 section_daily_audience_by_movie 함수처럼
+    'section_이름' 형태의 새 함수를 만들고, main()의 맨 아래에서 호출해 주세요.
+    """
+    st.header("2. (다음 그래프 추가 예정)")
+    st.caption("여기에 새로운 그래프가 추가될 예정입니다.")
+
+
+def main():
+    st.set_page_config(
+        page_title="영화 데이터 그래프 도감 1 - 시간",
+        page_icon="🎬",
+        layout="wide",
+    )
+
+    st.title("🎬 영화 데이터 그래프 도감 1 - 시간")
+    st.caption("최근 1년간 일별 박스오피스 10위권 데이터로 만든 그래프 모음입니다.")
+
+    df = load_data()
+
+    st.divider()
+
+    # ---------- 섹션 1: 영화별 일일 관객수 변화 ----------
+    section_daily_audience_by_movie(df)
+
+    st.divider()
+
+    # ---------- 섹션 2 이후: 앞으로 그래프가 추가될 자리 ----------
+    section_placeholder_next()
+
+
+if __name__ == "__main__":
+    main()
